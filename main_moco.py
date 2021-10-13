@@ -101,6 +101,7 @@ parser.add_argument('--cos', action='store_true',
 def main():
     args = parser.parse_args()
 
+    # random seed를 통해 완벽한 reproducibilble results를 얻으려고함
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -111,10 +112,12 @@ def main():
                       'You may see unexpected behavior when restarting '
                       'from checkpoints.')
 
+    #특정 gpu선택
     if args.gpu is not None:
         warnings.warn('You have chosen a specific GPU. This will completely '
                       'disable data parallelism.')
 
+    #distributed 를 통해 multi processing에 관련된 코드
     if args.dist_url == "env://" and args.world_size == -1:
         args.world_size = int(os.environ["WORLD_SIZE"])
 
@@ -137,7 +140,7 @@ def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
 
     # suppress printing if not master
-    if args.multiprocessing_distributed and args.gpu != 0:
+    if args.multiprocessing_distributed and args.gpu != 0:  #mater process에서만 print 되도록
         def print_pass(*args):
             pass
         builtins.print = print_pass
@@ -158,14 +161,14 @@ def main_worker(gpu, ngpus_per_node, args):
     print("=> creating model '{}'".format(args.arch))
     model = moco.builder.MoCo(
         models.__dict__[args.arch],
-        args.moco_dim, args.moco_k, args.moco_m, args.moco_t, args.mlp)
+        args.moco_dim, args.moco_k, args.moco_m, args.moco_t, args.mlp)     #MoCo model 
     print(model)
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
         # DistributedDataParallel will use all available devices.
-        if args.gpu is not None:
+        if args.gpu is not None:                    
             torch.cuda.set_device(args.gpu)
             model.cuda(args.gpu)
             # When using a single GPU per process and per
@@ -260,7 +263,7 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, epoch, args)
+        adjust_learning_rate(optimizer, epoch, args)            #moco v2에서는 cos learning scheduler // moco v1 step LR
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args)
