@@ -1,4 +1,10 @@
-## MoCo: Momentum Contrast for Unsupervised Visual Representation Learning
+## AAA738 Computer Vision Applications - Seungryong Kim, Korea University
+This project is a code review from the class above.
+
+1. Paper presenter: kwangrok Ryoo
+2. Code Reivewer: Jongbeom beak, Sunwoo Kim
+
+We are all from **CVLAB**(Prof. Seungryong Kim).
 
 <p align="center">
   <img src="https://user-images.githubusercontent.com/11435359/71603927-0ca98d00-2b14-11ea-9fd8-10d984a2de45.png" width="300">
