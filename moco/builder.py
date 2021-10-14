@@ -13,7 +13,7 @@ class MoCo(nn.Module):
         dim: feature dimension (default: 128)
         K: queue size; number of negative keys (default: 65536)     
         m: moco momentum of updating key encoder (default: 0.999)   
-        T: softmax temperature (default: 0.07)                      contrastive loss에 사용
+        T: softmax temperature (default: 0.07)                      this utilize contrastive loss
         """
         super(MoCo, self).__init__()
 
@@ -23,25 +23,25 @@ class MoCo(nn.Module):
 
         # create the encoders
         # num_classes is the output fc dimension
-        self.encoder_q = base_encoder(num_classes=dim)  # 출력할 클래스에 맞춰서 fc마지막 출력 channel이 변경됨 >> adjust fc layer output channel about the number of class
+        self.encoder_q = base_encoder(num_classes=dim)  # Adjust fc layer output channel about the number of class
         self.encoder_k = base_encoder(num_classes=dim)
 
-        if mlp:  # hack: brute-force replacement            # moco에서 추가적으로 사용하는 mlp layer [projection head]  [기존 dim_mlp > # of class  // 변경후 dim_mlp > dim_mlp > ReLU  > # of class]
+        if mlp:  # hack: brute-force replacement            # projection head   [baseline: dim_mlp > # of class  // Applying projection head: dim_mlp > dim_mlp > ReLU  > # of class]
             dim_mlp = self.encoder_q.fc.weight.shape[1]
             self.encoder_q.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_q.fc)
             self.encoder_k.fc = nn.Sequential(nn.Linear(dim_mlp, dim_mlp), nn.ReLU(), self.encoder_k.fc)
 
-        # key 에 있는 weight를 q를 기준으로 copy 학습을 하지않고 _momentum_update_key_encoder() 함수를 통해 업데이트하기 때문에
-        # require_grad = False
+        # Copy the weight in the k based on q
+        # require_grad = False: Because it is updated through the _momentum_update_key_encoder() function without learning
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
             param_k.data.copy_(param_q.data)  # initialize
             param_k.requires_grad = False  # not update by gradient
 
         # create the queue
-        self.register_buffer("queue", torch.randn(dim, K))              #optimizer가 업데이트 하지않고 값만 존재 [state_dict() 확인 가능, GPU연산 가능]
-        self.queue = nn.functional.normalize(self.queue, dim=0)         #link: https://discuss.pytorch.org/t/what-is-the-difference-between-register-buffer-and-register-parameter-of-nn-module/32723/6
+        self.register_buffer("queue", torch.randn(dim, K))              # The optimizer does not update, only the value exists [state_dict() can be checked, GPU operation is possible]
+        self.queue = nn.functional.normalize(self.queue, dim=0)         # link: https://discuss.pytorch.org/t/what-is-the-difference-between-register-buffer-and-register-parameter-of-nn-module/32723/6
 
-        self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long)) #point
+        self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long)) #cycle queue front 
 
     @torch.no_grad()
     def _momentum_update_key_encoder(self):
@@ -49,21 +49,21 @@ class MoCo(nn.Module):
         Momentum update of the key encoder
         """
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
-            param_k.data = param_k.data * self.m + param_q.data * (1. - self.m)                 #현재값 * m(0.999) + 새로운 값(q) * (1-m) 
+            param_k.data = param_k.data * self.m + param_q.data * (1. - self.m)                 #current value * m(0.999) + new value(q) * (1-m) 
 
     @torch.no_grad()
-    def _dequeue_and_enqueue(self, keys):           #cycle queue
+    def _dequeue_and_enqueue(self, keys):               # cycle queue
         # gather keys before updating queue
-        keys = concat_all_gather(keys)
+        keys = concat_all_gather(keys)                  # concat distributed tensor
 
-        batch_size = keys.shape[0]
+        batch_size = keys.shape[0]                      
 
         ptr = int(self.queue_ptr)
         assert self.K % batch_size == 0  # for simplicity
 
         # replace the keys at ptr (dequeue and enqueue)
-        self.queue[:, ptr:ptr + batch_size] = keys.T
-        ptr = (ptr + batch_size) % self.K  # move pointer
+        self.queue[:, ptr:ptr + batch_size] = keys.T    # update dequeue & enqueue (momentum queue: c x k, key.T: c x n) 
+        ptr = (ptr + batch_size) % self.K               # move front
 
         self.queue_ptr[0] = ptr
 
@@ -74,20 +74,20 @@ class MoCo(nn.Module):
         *** Only support DistributedDataParallel (DDP) model. ***
         """
         # gather from all gpus
-        batch_size_this = x.shape[0]
-        x_gather = concat_all_gather(x)
-        batch_size_all = x_gather.shape[0]
+        batch_size_this = x.shape[0]                    # batch size on single gpu 
+        x_gather = concat_all_gather(x)                 
+        batch_size_all = x_gather.shape[0]              # batch size on multi gpu
 
         num_gpus = batch_size_all // batch_size_this
 
         # random shuffle index
-        idx_shuffle = torch.randperm(batch_size_all).cuda()
+        idx_shuffle = torch.randperm(batch_size_all).cuda()     # shuffle
 
         # broadcast to all gpus
-        torch.distributed.broadcast(idx_shuffle, src=0)
+        torch.distributed.broadcast(idx_shuffle, src=0)         
 
         # index for restoring
-        idx_unshuffle = torch.argsort(idx_shuffle)
+        idx_unshuffle = torch.argsort(idx_shuffle)              # unshuffled index 
 
         # shuffled index for this gpu
         gpu_idx = torch.distributed.get_rank()
@@ -125,11 +125,11 @@ class MoCo(nn.Module):
 
         # compute query features
         q = self.encoder_q(im_q)  # queries: NxC
-        q = nn.functional.normalize(q, dim=1)       #channel 축으로 normalization
+        q = nn.functional.normalize(q, dim=1)                       # normalization along channel axis 
 
         # compute key features
         with torch.no_grad():  # no gradient to keys
-            self._momentum_update_key_encoder()  # update the key encoder
+            self._momentum_update_key_encoder()                     # update the key encoder
 
             # shuffle for making use of BN
             im_k, idx_unshuffle = self._batch_shuffle_ddp(im_k)
@@ -138,14 +138,14 @@ class MoCo(nn.Module):
             k = nn.functional.normalize(k, dim=1)
 
             # undo shuffle
-            k = self._batch_unshuffle_ddp(k, idx_unshuffle)
+            k = self._batch_unshuffle_ddp(k, idx_unshuffle)         # To update the unshuffled key, return it to the unshuffle index.
 
         # compute logits
         # Einstein sum is more intuitive
         # positive logits: Nx1
-        l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)      
+        l_pos = torch.einsum('nc,nc->n', [q, k]).unsqueeze(-1)                  # matmul q & k 
         # negative logits: NxK
-        l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])
+        l_neg = torch.einsum('nc,ck->nk', [q, self.queue.clone().detach()])     # matmul q & momentum queue
 
         # logits: Nx(1+K)
         logits = torch.cat([l_pos, l_neg], dim=1)
