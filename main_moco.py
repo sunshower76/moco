@@ -101,7 +101,7 @@ parser.add_argument('--cos', action='store_true',
 def main():
     args = parser.parse_args()
 
-    # random seed를 통해 완벽한 reproducibilble results를 얻으려고함
+    # Random seed selection for perfect reproducibility
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -112,12 +112,12 @@ def main():
                       'You may see unexpected behavior when restarting '
                       'from checkpoints.')
 
-    #특정 gpu선택
+    #choose a specific GPU
     if args.gpu is not None:
         warnings.warn('You have chosen a specific GPU. This will completely '
                       'disable data parallelism.')
 
-    #distributed 를 통해 multi processing에 관련된 코드
+    #Code related to multi processing through distributed
     if args.dist_url == "env://" and args.world_size == -1:
         args.world_size = int(os.environ["WORLD_SIZE"])
 
@@ -140,7 +140,7 @@ def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
 
     # suppress printing if not master
-    if args.multiprocessing_distributed and args.gpu != 0:  #mater process에서만 print 되도록
+    if args.multiprocessing_distributed and args.gpu != 0:  #To be printed only in the mater process
         def print_pass(*args):
             pass
         builtins.print = print_pass
@@ -263,7 +263,7 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, epoch, args)            #moco v2에서는 cos learning scheduler // moco v1 step LR
+        adjust_learning_rate(optimizer, epoch, args)            #moco v2: cos learning scheduler // moco v1: step LR
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args)
