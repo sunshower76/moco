@@ -9,13 +9,13 @@ class TwoCropsTransform:
     def __init__(self, base_transform):
         self.base_transform = base_transform
 
-    def __call__(self, x):                      # 다른 data augmentation을 통해 입력이 들어감
+    def __call__(self, x):                      # Input comes in through other data augmentation
         q = self.base_transform(x)
         k = self.base_transform(x)
-        return [q, k]                           # list 로 출력을시켜 index 0,1로 구분
+        return [q, k]                           # list output to distinguish input data 
 
 
-class GaussianBlur(object):                     # moco2에서 추가된 data augmentation
+class GaussianBlur(object):                     # Data augmentation added in moco v2
     """Gaussian blur augmentation in SimCLR https://arxiv.org/abs/2002.05709"""
 
     def __init__(self, sigma=[.1, 2.]):
